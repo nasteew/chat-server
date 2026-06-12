@@ -1,5 +1,6 @@
 const bcrypt = require('bcrypt');
 const { supabase } = require('../../db/supabase');
+const avatarService = require('./avatar.service');
 
 exports.findByEmail = async (email) => {
   const { data, error } = await supabase.from('users').select('*').eq('email', email).single();
@@ -34,7 +35,52 @@ exports.createUser = async (username, display_name, email, password_hash) => {
 };
 
 exports.deleteUser = async (id) => {
-  const { error } = await supabase.from('users').delete().eq('id', id);
+  const userId = String(id);
+
+  try {
+    await avatarService.deleteAvatar(userId);
+  } catch {
+    // аватар мог отсутствовать
+  }
+
+  const { data: chats, error: chatsError } = await supabase
+    .from('chats')
+    .select('id')
+    .contains('participants', [userId]);
+
+  if (chatsError) throw chatsError;
+
+  const chatIds = (chats || []).map((c) => c.id);
+
+  if (chatIds.length > 0) {
+    const { error: messagesError } = await supabase
+      .from('messages')
+      .delete()
+      .in('chat_id', chatIds);
+
+    if (messagesError) throw messagesError;
+
+    const { error: readsByChatError } = await supabase
+      .from('chat_reads')
+      .delete()
+      .in('chat_id', chatIds);
+
+    if (readsByChatError) throw readsByChatError;
+
+    const { error: chatsDeleteError } = await supabase.from('chats').delete().in('id', chatIds);
+
+    if (chatsDeleteError) throw chatsDeleteError;
+  }
+
+  const { error: readsByUserError } = await supabase
+    .from('chat_reads')
+    .delete()
+    .eq('user_id', userId);
+
+  if (readsByUserError) throw readsByUserError;
+
+  const { error } = await supabase.from('users').delete().eq('id', userId);
+
   if (error) throw error;
 };
 
@@ -66,16 +112,4 @@ exports.updateUser = async (id, updates) => {
 
   if (error) throw error;
   return data;
-};
-
-exports.findByUsername = async (username) => {
-  const { data } = await supabase.from('users').select('*').eq('username', username).single();
-
-  return data || null;
-};
-
-exports.findByEmail = async (email) => {
-  const { data } = await supabase.from('users').select('*').eq('email', email).single();
-
-  return data || null;
 };

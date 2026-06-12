@@ -72,10 +72,16 @@ exports.deleteAccount = async (req, res) => {
 
     await userService.deleteUser(userId);
 
-    res.clearCookie('refreshToken', { path: '/' });
+    res.clearCookie('refreshToken', {
+      httpOnly: true,
+      secure: false,
+      sameSite: 'lax',
+      path: '/',
+    });
 
     return res.json({ ok: true });
-  } catch {
-    return res.status(500).json({ error: 'Delete failed' });
+  } catch (error) {
+    console.error('Delete account error:', error);
+    return res.status(500).json({ error: error.message || 'Delete failed' });
   }
 };
