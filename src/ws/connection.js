@@ -129,6 +129,28 @@ class Connection {
         break;
       }
 
+      case 'MSG_EDIT': {
+        if (!this.isAuthed) return;
+
+        const { chat_id, message_id, content } = msg.payload;
+
+        const chat = await chatService.getChatById(chat_id);
+        if (!chat) return;
+        if (!chat.participants.map(String).includes(this.userId)) return;
+
+        const updated = await messageService.editMessage(message_id, this.userId, content);
+        if (!updated) return;
+
+        await this.server.broadcastToParticipants(chat_id, 'MSG_EDITED', {
+          chat_id,
+          message_id,
+          content: updated.content,
+          is_edited: true,
+        });
+
+        break;
+      }
+
       case 'MSG_DELETE': {
         if (!this.isAuthed) return;
 

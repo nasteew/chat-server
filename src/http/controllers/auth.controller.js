@@ -1,18 +1,24 @@
 const authService = require('../services/auth.service');
 const userService = require('../services/user.service');
 
+function getRefreshCookieOptions() {
+  const isProduction = process.env.NODE_ENV === 'production';
+
+  return {
+    httpOnly: true,
+    secure: isProduction,
+    sameSite: isProduction ? 'none' : 'lax',
+    path: '/',
+  };
+}
+
 exports.register = async (req, res) => {
   try {
     const { username, display_name, email, password } = req.body;
 
     const { user, accessToken, refreshToken } = await authService.register(username, display_name, email, password);
 
-    res.cookie('refreshToken', refreshToken, {
-      httpOnly: true,
-      secure: false,
-      sameSite: 'lax',
-      path: '/',
-    });
+    res.cookie('refreshToken', refreshToken, getRefreshCookieOptions());
 
     return res.json({ accessToken, user });
   } catch (error) {
@@ -26,12 +32,7 @@ exports.login = async (req, res) => {
 
     const { user, accessToken, refreshToken } = await authService.login(email, password);
 
-    res.cookie('refreshToken', refreshToken, {
-      httpOnly: true,
-      secure: false,
-      sameSite: 'lax',
-      path: '/',
-    });
+    res.cookie('refreshToken', refreshToken, getRefreshCookieOptions());
 
     return res.json({ accessToken, user });
   } catch (error) {
@@ -56,12 +57,7 @@ exports.refresh = async (req, res) => {
 };
 
 exports.logout = (req, res) => {
-  res.clearCookie('refreshToken', {
-    httpOnly: true,
-    secure: false,
-    sameSite: 'lax',
-    path: '/',
-  });
+  res.clearCookie('refreshToken', getRefreshCookieOptions());
 
   return res.json({ ok: true });
 };
@@ -72,12 +68,7 @@ exports.deleteAccount = async (req, res) => {
 
     await userService.deleteUser(userId);
 
-    res.clearCookie('refreshToken', {
-      httpOnly: true,
-      secure: false,
-      sameSite: 'lax',
-      path: '/',
-    });
+    res.clearCookie('refreshToken', getRefreshCookieOptions());
 
     return res.json({ ok: true });
   } catch (error) {

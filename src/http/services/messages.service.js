@@ -36,3 +36,32 @@ exports.saveMessage = async (msg) => {
   if (error) throw error;
   return data;
 };
+
+exports.editMessage = async (messageId, userId, content) => {
+  const trimmed = content?.trim();
+  if (!trimmed) return null;
+
+  const { data: message, error: fetchError } = await supabase
+    .from('messages')
+    .select('*')
+    .eq('id', messageId)
+    .single();
+
+  if (fetchError || !message) return null;
+  if (String(message.sender_id) !== String(userId)) return null;
+  if (message.is_deleted) return null;
+
+  const { data, error } = await supabase
+    .from('messages')
+    .update({
+      content: trimmed,
+      is_edited: true,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', messageId)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+};
