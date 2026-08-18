@@ -18,11 +18,46 @@ exports.getMessages = async (chatId, userId) => {
 
   const lastReadId = readRow?.last_read_message_id || null;
 
-  const mapped = (messages || []).map((m) => ({
-    ...m,
-    sender_id: m.sender_id || m.user_id,
-    is_read: lastReadId ? m.id <= lastReadId : false,
-  }));
+  const { data: chat } = await supabase.from('chats').select('participants').eq('id', chatId).single();
+
+  const otherUserId = (chat?.participants || []).find((p) => String(p) !== String(userId));
+
+  let otherLastReadCreatedAt = null;
+
+  if (otherUserId) {
+    const { data: otherRead } = await supabase
+      .from('chat_reads')
+      .select('last_read_message_id')
+      .eq('chat_id', chatId)
+      .eq('user_id', otherUserId)
+      .single();
+
+    if (otherRead?.last_read_message_id) {
+      const { data: readMsg } = await supabase
+        .from('messages')
+        .select('created_at')
+        .eq('id', otherRead.last_read_message_id)
+        .single();
+
+      otherLastReadCreatedAt = readMsg?.created_at ?? null;
+    }
+  }
+
+  const mapped = (messages || []).map((m) => {
+    const senderId = m.sender_id || m.user_id;
+    const isMine = String(senderId) === String(userId);
+    let is_read = false;
+
+    if (isMine && otherLastReadCreatedAt) {
+      is_read = m.created_at <= otherLastReadCreatedAt;
+    }
+
+    return {
+      ...m,
+      sender_id: senderId,
+      is_read,
+    };
+  });
 
   return {
     messages: mapped,
@@ -41,11 +76,7 @@ exports.editMessage = async (messageId, userId, content) => {
   const trimmed = content?.trim();
   if (!trimmed) return null;
 
-  const { data: message, error: fetchError } = await supabase
-    .from('messages')
-    .select('*')
-    .eq('id', messageId)
-    .single();
+  const { data: message, error: fetchError } = await supabase.from('messages').select('*').eq('id', messageId).single();
 
   if (fetchError || !message) return null;
   if (String(message.sender_id) !== String(userId)) return null;

@@ -2,6 +2,7 @@ const messageService = require('../http/services/messages.service');
 const chatService = require('../http/services/chats.service');
 const { verifyAccess } = require('../utils/jwt');
 const { supabase } = require('../db/supabase');
+const { createSequentialQueue } = require('./sequentialQueue');
 
 class Connection {
   constructor(socket, id, server) {
@@ -12,8 +13,11 @@ class Connection {
     this.userId = null;
     this.currentChatId = null;
     this.isAuthed = false;
+    this.enqueue = createSequentialQueue();
 
-    this.socket.on('message', this.onMessage.bind(this));
+    this.socket.on('message', (raw) => {
+      this.enqueue(() => this.handleMessage(raw));
+    });
 
     this.socket.on('close', () => {
       this.handleDisconnect();
@@ -54,7 +58,7 @@ class Connection {
       });
     }
   }
-  async onMessage(raw) {
+  async handleMessage(raw) {
     let msg;
 
     try {
@@ -88,6 +92,7 @@ class Connection {
             user_id: this.userId,
           });
         } catch {
+          this.send('AUTH_FAILURE', { reason: 'invalid_token' });
           this.socket.close();
         }
 
@@ -109,22 +114,34 @@ class Connection {
       case 'MSG_SEND': {
         if (!this.isAuthed) return;
 
-        const chat = await chatService.getChatById(msg.payload.chat_id);
-        if (!chat) return;
+        const { chat_id, content, temp_id } = msg.payload;
 
-        if (!chat.participants.map(String).includes(this.userId)) return;
+        try {
+          const chat = await chatService.getChatById(chat_id);
+          if (!chat) return;
 
-        const saved = await messageService.saveMessage({
-          chat_id: msg.payload.chat_id,
-          content: msg.payload.content,
-          sender_id: this.userId,
-        });
+          if (!chat.participants.map(String).includes(this.userId)) return;
 
-        await this.server.broadcastToParticipants(saved.chat_id, 'MSG_NEW', {
-          ...saved,
-          sender_id: this.userId,
-          temp_id: msg.payload.temp_id,
-        });
+          const saved = await messageService.saveMessage({
+            chat_id,
+            content,
+            sender_id: this.userId,
+          });
+
+          await this.server.broadcastToParticipants(saved.chat_id, 'MSG_NEW', {
+            ...saved,
+            sender_id: this.userId,
+            temp_id,
+          });
+        } catch (err) {
+          console.error('MSG_SEND failed:', err);
+          this.send('MSG_ERROR', {
+            code: 'MSG_SEND_FAILED',
+            chat_id,
+            temp_id,
+            message: 'Failed to send message',
+          });
+        }
 
         break;
       }
@@ -180,11 +197,9 @@ class Connection {
       case 'MESSAGES_READ': {
         if (!this.isAuthed) return;
 
-        const { chat_id } = msg.payload;
+        const { chat_id, last_read_message_id } = msg.payload;
 
-        const lastMsg = await chatService.markChatRead(chat_id, this.userId);
-
-        console.log('📨 MESSAGES_READ: markChatRead result:', lastMsg);
+        const lastMsg = await chatService.markChatRead(chat_id, this.userId, last_read_message_id);
 
         await this.server.broadcastToParticipants(chat_id, 'MESSAGES_READ_ACK', {
           chat_id,

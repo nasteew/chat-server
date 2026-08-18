@@ -122,18 +122,34 @@ exports.getChatById = async (chatId) => {
   return chat;
 };
 
-exports.markChatRead = async (chatId, userId) => {
-  const { data: lastMsg } = await supabase
-    .from('messages')
-    .select('id, created_at')
-    .eq('chat_id', chatId)
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .single();
+exports.markChatRead = async (chatId, userId, lastReadMessageId = null) => {
+  let lastMsg = null;
+
+  if (lastReadMessageId) {
+    const { data } = await supabase
+      .from('messages')
+      .select('id, created_at')
+      .eq('id', lastReadMessageId)
+      .eq('chat_id', chatId)
+      .single();
+
+    lastMsg = data;
+  }
+
+  if (!lastMsg) {
+    const { data } = await supabase
+      .from('messages')
+      .select('id, created_at')
+      .eq('chat_id', chatId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single();
+
+    lastMsg = data;
+  }
 
   if (!lastMsg) return null;
 
-  console.log('➡ updating chat_reads for', { chatId, userId, lastMsg });
   await supabase.from('chat_reads').upsert(
     {
       chat_id: chatId,
@@ -145,10 +161,6 @@ exports.markChatRead = async (chatId, userId) => {
       onConflict: 'chat_id,user_id',
     }
   );
-
-  const { data: check } = await supabase.from('chat_reads').select('*').eq('chat_id', chatId).eq('user_id', userId);
-
-  console.log('➡ chat_reads after update:', check);
 
   return lastMsg;
 };
@@ -168,17 +180,11 @@ exports.deleteChat = async (chatId, userId) => {
     throw err;
   }
 
-  const { error: messagesError } = await supabase
-    .from('messages')
-    .delete()
-    .eq('chat_id', chatId);
+  const { error: messagesError } = await supabase.from('messages').delete().eq('chat_id', chatId);
 
   if (messagesError) throw messagesError;
 
-  const { error: readsError } = await supabase
-    .from('chat_reads')
-    .delete()
-    .eq('chat_id', chatId);
+  const { error: readsError } = await supabase.from('chat_reads').delete().eq('chat_id', chatId);
 
   if (readsError) throw readsError;
 
