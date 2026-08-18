@@ -45,7 +45,7 @@ exports.refresh = async (req, res) => {
     const { refreshToken } = req.cookies;
 
     if (!refreshToken) {
-      return res.status(401).json({ error: 'No refresh token' });
+      return res.status(204).end();
     }
 
     const { user, accessToken } = await authService.refresh(refreshToken);

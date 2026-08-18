@@ -23,6 +23,22 @@ exports.findById = async (id) => {
   return data;
 };
 
+function formatServiceError(error, fallback) {
+  if (!error) return fallback;
+
+  const message = error.message || error.details || fallback;
+
+  if (
+    message.includes('fetch failed') ||
+    message.includes('ENOTFOUND') ||
+    error.code === 'ENOTFOUND'
+  ) {
+    return 'Cannot connect to database. Check SUPABASE_URL and internet connection in server .env';
+  }
+
+  return message;
+}
+
 exports.createUser = async (username, display_name, email, password_hash) => {
   const { data, error } = await supabase
     .from('users')
@@ -30,7 +46,9 @@ exports.createUser = async (username, display_name, email, password_hash) => {
     .select()
     .single();
 
-  if (error) throw error;
+  if (error) {
+    throw new Error(formatServiceError(error, 'Failed to create user'));
+  }
   return data;
 };
 
